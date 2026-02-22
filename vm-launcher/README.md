@@ -21,6 +21,7 @@ sudo chmod +x /usr/local/bin/vm
 | `vm stop <n> --force` | Force kill the VM immediately |
 | `vm viewer <n>` | Reconnect virt-viewer to a running VM |
 | `vm edit <n>` | Edit VM XML config (opens virsh edit) |
+| `vm dump <n> [file]` | Dump VM XML to file (default: `<n>.xml`) |
 | `vm status <n>` | Show detailed VM info (vCPUs, RAM, state) |
 
 ## Usage Examples
@@ -37,6 +38,10 @@ vm viewer win11-office
 
 # Change VM settings (CPU, RAM, video, devices)
 vm edit win11-office
+
+# Export current VM config to a file
+vm dump win11-office
+vm dump win11-office /tmp/backup.xml
 
 # Done working — graceful shutdown
 vm stop win11-office
@@ -59,3 +64,4 @@ vm stop win11-office --force
 - Closing the virt-viewer window does **not** stop the VM — use `vm stop` for that
 - The `--wait` flag on virt-viewer means it will reconnect automatically if the VM reboots
 - `vm edit` opens the VM XML in your default editor (`$EDITOR`). If the VM is running, changes apply after a full shutdown (not reboot)
+- `vm dump` exports the full XML to a file for backup or debugging — defaults to `<vm-name>.xml` in the current directory

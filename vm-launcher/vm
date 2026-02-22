@@ -119,6 +119,20 @@ cmd_edit() {
     sudo virsh edit "$vm"
 }
 
+cmd_dump() {
+    local vm="$1"
+    local outfile="$2"
+    [ -z "$vm" ] && { echo "Usage: vm dump <vm-name> [output-file]"; return 1; }
+    sudo virsh domstate "$vm" &>/dev/null || { echo -e "${RED}VM '$vm' not found${NC}"; return 1; }
+
+    if [ -z "$outfile" ]; then
+        outfile="${vm}.xml"
+    fi
+
+    sudo virsh dumpxml "$vm" > "$outfile"
+    echo -e "${GREEN}Dumped $vm config to ${CYAN}$outfile${NC}"
+}
+
 cmd_help() {
     echo -e "${CYAN}vm${NC} - VM launcher and manager"
     echo ""
@@ -129,12 +143,15 @@ cmd_help() {
     echo "  vm stop <n> --force   Force kill VM"
     echo "  vm viewer <n>         Open virt-viewer to running VM"
     echo "  vm edit <n>           Edit VM XML config (virsh edit)"
+    echo "  vm dump <n> [file]    Dump VM XML to file (default: <n>.xml)"
     echo "  vm status <n>         Show VM details"
     echo ""
     echo "Examples:"
     echo "  vm start win11-office"
     echo "  vm stop win11-office"
     echo "  vm edit win11-office"
+    echo "  vm dump win11-office"
+    echo "  vm dump win11-office /tmp/backup.xml"
     echo "  vm list"
 }
 
@@ -146,6 +163,7 @@ case "${1:-help}" in
     status)  cmd_status "$2" ;;
     viewer)  cmd_viewer "$2" ;;
     edit)    cmd_edit "$2" ;;
+    dump)    cmd_dump "$2" "$3" ;;
     help|-h|--help) cmd_help ;;
     *)       echo -e "${RED}Unknown command: $1${NC}"; cmd_help; exit 1 ;;
 esac
