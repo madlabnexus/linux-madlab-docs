@@ -1,0 +1,151 @@
+#!/bin/bash
+# vm - Simple VM launcher and manager
+# Usage: vm [start|stop|list|status|edit|viewer] [vm-name]
+
+CONNECT_URI="qemu:///system"
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+cmd_list() {
+    echo -e "${CYAN}=== Available VMs ===${NC}"
+    printf "%-25s %-12s %-6s\n" "NAME" "STATE" "VCPUS"
+    echo "---------------------------------------------"
+    sudo virsh list --all --name | while read -r name; do
+        [ -z "$name" ] && continue
+        state=$(sudo virsh domstate "$name" 2>/dev/null | head -1)
+        vcpus=$(sudo virsh dominfo "$name" 2>/dev/null | grep "CPU(s)" | awk '{print $2}')
+        if [ "$state" = "running" ]; then
+            printf "%-25s ${GREEN}%-12s${NC} %-6s\n" "$name" "$state" "$vcpus"
+        else
+            printf "%-25s ${RED}%-12s${NC} %-6s\n" "$name" "$state" "$vcpus"
+        fi
+    done
+}
+
+cmd_status() {
+    local vm="$1"
+    [ -z "$vm" ] && { echo "Usage: vm status <vm-name>"; return 1; }
+    echo -e "${CYAN}=== $vm ===${NC}"
+    sudo virsh dominfo "$vm" 2>/dev/null || { echo -e "${RED}VM '$vm' not found${NC}"; return 1; }
+}
+
+cmd_start() {
+    local vm="$1"
+    [ -z "$vm" ] && { echo "Usage: vm start <vm-name>"; return 1; }
+
+    state=$(sudo virsh domstate "$vm" 2>/dev/null | head -1)
+    if [ "$state" = "running" ]; then
+        echo -e "${YELLOW}$vm is already running${NC}"
+    else
+        echo -e "${CYAN}Starting $vm...${NC}"
+        sudo virsh start "$vm" || { echo -e "${RED}Failed to start $vm${NC}"; return 1; }
+        sleep 2
+        echo -e "${GREEN}$vm started${NC}"
+    fi
+
+    echo -e "${CYAN}Connecting virt-viewer...${NC}"
+    nohup virt-viewer -c "$CONNECT_URI" --wait "$vm" &>/dev/null &
+    echo -e "${GREEN}virt-viewer connected (PID: $!)${NC}"
+    echo ""
+    echo -e "When done, run: ${YELLOW}vm stop $vm${NC}"
+}
+
+cmd_stop() {
+    local vm="$1"
+    local force="$2"
+    [ -z "$vm" ] && { echo "Usage: vm stop <vm-name> [--force]"; return 1; }
+
+    state=$(sudo virsh domstate "$vm" 2>/dev/null | head -1)
+    if [ "$state" != "running" ]; then
+        echo -e "${YELLOW}$vm is not running${NC}"
+        return 0
+    fi
+
+    if [ "$force" = "--force" ]; then
+        echo -e "${RED}Force stopping $vm...${NC}"
+        sudo virsh destroy "$vm"
+    else
+        echo -e "${CYAN}Sending ACPI shutdown to $vm...${NC}"
+        sudo virsh shutdown "$vm"
+        echo -e "${YELLOW}Waiting for graceful shutdown (60s timeout)...${NC}"
+        for i in $(seq 1 60); do
+            state=$(sudo virsh domstate "$vm" 2>/dev/null | head -1)
+            [ "$state" != "running" ] && break
+            sleep 1
+            printf "\r  %ds..." "$i"
+        done
+        echo ""
+        state=$(sudo virsh domstate "$vm" 2>/dev/null | head -1)
+        if [ "$state" = "running" ]; then
+            echo -e "${RED}Graceful shutdown timed out. Use 'vm stop $vm --force' to kill it${NC}"
+            return 1
+        fi
+    fi
+
+    # Kill any remaining virt-viewer for this VM
+    pkill -f "virt-viewer.*$vm" 2>/dev/null
+
+    echo -e "${GREEN}$vm stopped${NC}"
+}
+
+cmd_viewer() {
+    local vm="$1"
+    [ -z "$vm" ] && { echo "Usage: vm viewer <vm-name>"; return 1; }
+
+    state=$(sudo virsh domstate "$vm" 2>/dev/null | head -1)
+    if [ "$state" != "running" ]; then
+        echo -e "${RED}$vm is not running. Use 'vm start $vm' first${NC}"
+        return 1
+    fi
+
+    echo -e "${CYAN}Connecting virt-viewer to $vm...${NC}"
+    nohup virt-viewer -c "$CONNECT_URI" --wait "$vm" &>/dev/null &
+    echo -e "${GREEN}virt-viewer connected (PID: $!)${NC}"
+}
+
+cmd_edit() {
+    local vm="$1"
+    [ -z "$vm" ] && { echo "Usage: vm edit <vm-name>"; return 1; }
+    sudo virsh domstate "$vm" &>/dev/null || { echo -e "${RED}VM '$vm' not found${NC}"; return 1; }
+
+    state=$(sudo virsh domstate "$vm" 2>/dev/null | head -1)
+    if [ "$state" = "running" ]; then
+        echo -e "${YELLOW}Warning: $vm is running. Changes take effect after full shutdown (not reboot).${NC}"
+    fi
+
+    sudo virsh edit "$vm"
+}
+
+cmd_help() {
+    echo -e "${CYAN}vm${NC} - VM launcher and manager"
+    echo ""
+    echo "Commands:"
+    echo "  vm list                  List all VMs and their state"
+    echo "  vm start <n>          Start VM + open virt-viewer"
+    echo "  vm stop <n>           Graceful ACPI shutdown"
+    echo "  vm stop <n> --force   Force kill VM"
+    echo "  vm viewer <n>         Open virt-viewer to running VM"
+    echo "  vm edit <n>           Edit VM XML config (virsh edit)"
+    echo "  vm status <n>         Show VM details"
+    echo ""
+    echo "Examples:"
+    echo "  vm start win11-office"
+    echo "  vm stop win11-office"
+    echo "  vm edit win11-office"
+    echo "  vm list"
+}
+
+# Main
+case "${1:-help}" in
+    list)    cmd_list ;;
+    start)   cmd_start "$2" ;;
+    stop)    cmd_stop "$2" "$3" ;;
+    status)  cmd_status "$2" ;;
+    viewer)  cmd_viewer "$2" ;;
+    edit)    cmd_edit "$2" ;;
+    help|-h|--help) cmd_help ;;
+    *)       echo -e "${RED}Unknown command: $1${NC}"; cmd_help; exit 1 ;;
+esac
